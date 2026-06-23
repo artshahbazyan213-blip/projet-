@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<!-- ============================================================
+     HEAD — метадані, шрифти, посилання на CSS
+     ============================================================ -->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carte interactive des pays</title>
+
+  <!-- Google Fonts: Space Grotesk (заголовки) + DM Sans (текст) -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=DM+Sans:wght@300;400;600&display=swap"
+    rel="stylesheet"
+  >
+
+  <!-- Стилі винесені в окремий файл -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+
+<!-- ============================================================
+     BODY
+     ============================================================ -->
+<body>
+
+  <!-- ── ШАПКА ──────────────────────────────────────────────── -->
+  <header>
+    <div class="header-left">
+      <h1>🌍 Carte interactive des pays</h1>
+      <p>Clique sur un pays pour découvrir ses informations</p>
+    </div>
+
+    <div class="header-right">
+      <!-- Лічильник результатів пошуку -->
+      <span id="countLabel"></span>
+
+      <!-- Поле пошуку — фільтрує список у реальному часі -->
+      <input
+        type="text"
+        id="searchInput"
+        placeholder="🔍 Rechercher un pays..."
+        oninput="filterCountries(this.value)"
+        autocomplete="off"
+      >
+    </div>
+  </header>
+
+
+  <!-- ── ОСНОВНИЙ КОНТЕНТ ────────────────────────────────────── -->
+  <div class="page">
+
+    <!-- Ліва панель: список країн (рендериться сервером через Jinja2) -->
+    <nav class="panel-left" aria-label="Liste des pays">
+
+      <div class="panel-title">
+        Pays disponibles
+      </div>
+
+      {# Jinja2 loop — Flask передає список країн із countries.py #}
+      {% for country in countries %}
+        <button
+          class="country-btn"
+          data-country="{{ country.name }}"
+          onclick="showCountry('{{ country.name }}')"
+          aria-label="Afficher {{ country.name }}"
+        >
+          <img
+            src="{{ country.logo }}"
+            alt="Drapeau {{ country.name }}"
+            onerror="this.style.display='none'"
+          >
+          <span>{{ country.name }}</span>
+        </button>
+      {% endfor %}
+
+      <!-- Показується, якщо пошук не дав результатів -->
+      <div id="noResults">Aucun pays trouvé</div>
+
+    </nav>
+
+
+    <!-- Права панель: деталі вибраної країни -->
+    <main class="panel-right">
+
+      <!-- Заглушка — показується поки користувач нічого не вибрав -->
+      <div class="placeholder" id="placeholder">
+        <div class="globe">🌐</div>
+        <p>Sélectionne un pays pour afficher<br>ses informations</p>
+      </div>
+
+      <!-- Заповнюється динамічно через JS після кліку на країну -->
+      <div id="countryCard" style="display: none;"></div>
+
+    </main>
+
+  </div><!-- .page -->
+
+
+  <!-- ============================================================
+       JAVASCRIPT
+       ============================================================ -->
+  <script>
+
+    /**
+     * showCountry(name)
+     * -----------------
+     * Викликається при кліку на кнопку країни.
+     *
+     * Кроки:
+     *   1. Підсвічує активну кнопку в списку.
+     *   2. Показує спінер завантаження.
+     *   3. Робить GET-запит до Flask API: /api/country/<name>
+     *   4. Передає отриманий JSON у renderCard() для відображення.
+     */
+    async function showCountry(name) {
+
+      // 1. Підсвітити активну кнопку, зняти підсвітку з інших
+      document.querySelectorAll('.country-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.querySelector(`.country-btn[data-country="${name}"]`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      // 2. Сховати заглушку та показати спінер
+      document.getElementById('placeholder').style.display = 'none';
+      const card = document.getElementById('countryCard');
+      card.style.display = 'block';
+      card.innerHTML = `
+        <div class="loading">
+          <div class="spinner"></div>
+          Chargement…
+        </div>`;
+
+      // 3. Запит до Flask REST API
+      try {
+        const response = await fetch(`/api/country/${encodeURIComponent(name)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const countryData = await response.json();
+
+        // 4. Відрендерити картку
+        renderCard(countryData);
+
+      } catch (error) {
+        card.innerHTML = `
+          <div class="loading" style="color: var(--accent2)">
+            ⚠️ Erreur de chargement : ${error.message}
+          </div>`;
+      }
+    }
+
+
+    /**
+     * renderCard(c)
+     * -------------
+     * Будує HTML-картку з даними країни та вставляє її в DOM.
+     *
+     * Параметр c — об'єкт JSON, отриманий від Flask:
+     *   { name, capitale, population, langue, continent,
+     *     lat, lon, map_image, logo, lieux[] }
+     */
+    function renderCard(c) {
+
+      // Формуємо URL вбудованої карти OpenStreetMap
+      const osmUrl = [
+        'https://www.openstreetmap.org/export/embed.html',
+        `?bbox=${c.lon - 8},${c.lat - 6},${c.lon + 8},${c.lat + 6}`,
+        `&layer=mapnik`,
+        `&marker=${c.lat},${c.lon}`
+      ].join('');
+
+      // Генеруємо HTML-теги відомих місць
+      const lieuxTags = c.lieux
+        .map(lieu => `<div class="lieu-tag">${lieu}</div>`)
+        .join('');
+
+      // Вставляємо готовий HTML у контейнер картки
+      document.getElementById('countryCard').innerHTML = `
+        <div class="country-card">
+
+          <!-- Заголовок: прапор + назва + континент -->
+          <div class="country-header">
+            <img
+              class="flag"
+              src="${c.logo}"
+              alt="Drapeau ${c.name}"
+              onerror="this.style.display='none'"
+            >
+            <div>
+              <h2>${c.name}</h2>
+              <span class="continent-badge">${c.continent}</span>
+            </div>
+          </div>
+
+          <!-- Три інфо-блоки: Столиця / Населення / Мова -->
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="label">🏛 Capitale</div>
+              <div class="value">${c.capitale}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">👥 Population</div>
+              <div class="value">${c.population}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">🗣 Langue</div>
+              <div class="value">${c.langue}</div>
+            </div>
+          </div>
+
+          <!-- Дві карти: статична (PNG з Wikimedia) + інтерактивна (OSM) -->
+          <div class="maps-row">
+            <div class="map-box">
+              <div class="map-box-title">🗺 Carte de localisation</div>
+              <img
+                src="${c.map_image}"
+                alt="Carte ${c.name}"
+                onerror="this.alt='Non disponible'"
+              >
+            </div>
+            <div class="map-box">
+              <div class="map-box-title">📍 Carte interactive</div>
+              <iframe
+                src="${osmUrl}"
+                loading="lazy"
+                title="Carte OpenStreetMap ${c.name}"
+              ></iframe>
+            </div>
+          </div>
+
+          <!-- Теги відомих місць -->
+          <div class="lieux-section">
+            <div class="lieux-title">📸 Lieux célèbres</div>
+            <div class="lieux-list">${lieuxTags}</div>
+          </div>
+
+        </div>`;
+    }
+
+
+    /**
+     * filterCountries(query)
+     * ----------------------
+     * Ховає кнопки, назва яких не містить введеного тексту.
+     * Оновлює лічильник результатів у шапці.
+     * Показує повідомлення «Aucun pays trouvé» якщо 0 збігів.
+     */
+    function filterCountries(query) {
+      const lowerQuery = query.toLowerCase().trim();
+      let visibleCount = 0;
+
+      document.querySelectorAll('.country-btn').forEach(btn => {
+        const countryName = btn.getAttribute('data-country').toLowerCase();
+        const isMatch = countryName.includes(lowerQuery);
+        btn.classList.toggle('hidden', !isMatch);
+        if (isMatch) visibleCount++;
+      });
+
+      // Лічильник у шапці
+      const countLabel = document.getElementById('countLabel');
+      countLabel.textContent = lowerQuery
+        ? `${visibleCount} résultat${visibleCount !== 1 ? 's' : ''}`
+        : '';
+
+      // Повідомлення «нічого не знайдено»
+      document.getElementById('noResults').style.display =
+        visibleCount === 0 ? 'block' : 'none';
+    }
+
+  </script>
+
+</body>
+</html>
