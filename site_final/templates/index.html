@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carte interactive des pays</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <h1>🌍 Carte interactive des pays</h1>
+    </div>
+    <div class="header-right">
+      <span id="countLabel"></span>
+      <input
+        type="text"
+        id="searchInput"
+        placeholder="🔍 Rechercher…"
+        oninput="filterCountries(this.value)"
+      >
+    </div>
+  </header>
+
+  <div class="page">
+    <nav class="panel-left">
+      <div class="panel-title">Pays disponibles</div>
+
+      {% for country in countries %}
+        <button
+          class="country-btn"
+          data-country="{{ country.name }}"
+          onclick="showCountry('{{ country.name }}')"
+        >
+          <img src="{{ country.logo }}" onerror="this.style.display='none'">
+          <span>{{ country.name }}</span>
+        </button>
+      {% endfor %}
+
+      <div id="noResults">Aucun pays trouvé</div>
+    </nav>
+
+    <main class="panel-right">
+
+      <div class="placeholder" id="placeholder"></div>
+
+      <div id="countryCard" style="display: none;"></div>
+
+    </main>
+  </div>
+
+  <script>
+    async function showCountry(name) {
+      document.querySelectorAll('.country-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelector(`.country-btn[data-country="${name}"]`)?.classList.add('active');
+
+      document.getElementById('placeholder').style.display = 'none';
+      const card = document.getElementById('countryCard');
+      card.style.display = 'block';
+
+      try {
+        const response = await fetch(`/api/country/${encodeURIComponent(name)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        renderCard(data);
+      } catch (error) {
+        card.innerHTML = `<div class="loading">⚠️ ${error.message}</div>`;
+      }
+    }
+
+    function renderCard(country) {
+      const mapUrl = [
+        'https://www.openstreetmap.org/export/embed.html',
+        `?bbox=${country.lon - 8},${country.lat - 6},${country.lon + 8},${country.lat + 6}`,
+        `&layer=mapnik`,
+        `&marker=${country.lat},${country.lon}`
+      ].join('');
+
+      const lieuxHTML = country.lieux
+        .map(lieu => `<div class="lieu-tag">${lieu}</div>`)
+        .join('');
+
+      document.getElementById('countryCard').innerHTML = `
+        <div class="country-card">
+
+          <div class="country-header">
+            <img class="flag" src="${country.logo}" onerror="this.style.display='none'">
+            <div>
+              <h2>${country.name}</h2>
+              <span class="continent-badge">${country.continent}</span>
+            </div>
+          </div>
+
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="label">🏛 Capitale</div>
+              <div class="value">${country.capitale}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">👥 Population</div>
+              <div class="value">${country.population}</div>
+            </div>
+            <div class="info-item">
+              <div class="label">🗣 Langue</div>
+              <div class="value">${country.langue}</div>
+            </div>
+          </div>
+
+          <div class="map-section">
+            <div class="section-title">📍 Carte interactive</div>
+            <iframe src="${mapUrl}"></iframe>
+          </div>
+
+          <div class="lieux-section">
+            <div class="section-title">📸 Lieux célèbres</div>
+            <div class="lieux-list">${lieuxHTML}</div>
+          </div>
+
+        </div>`;
+    }
+
+    function filterCountries(query) {
+      const search = query.toLowerCase().trim();
+      let visibleCount = 0;
+
+      document.querySelectorAll('.country-btn').forEach(btn => {
+        const name = btn.dataset.country.toLowerCase();
+        const matches = name.includes(search);
+        btn.classList.toggle('hidden', !matches);
+        if (matches) visibleCount++;
+      });
+
+      const label = document.getElementById('countLabel');
+      label.textContent = search
+        ? `${visibleCount} résultat${visibleCount !== 1 ? 's' : ''}`
+        : '';
+
+      document.getElementById('noResults').style.display =
+        visibleCount === 0 ? 'block' : 'none';
+    }
+  </script>
+
+</body>
+</html>
